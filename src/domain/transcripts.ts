@@ -151,6 +151,7 @@ export type ChatState =
   | { state: 'none' }
   | { state: 'running' }
   | { state: 'done'; reply: string | null }
+  | { state: 'stopped' }
   | { state: 'error'; error: string };
 
 // Only main_turn records count. A completed record ending in tool-calls means the
@@ -165,7 +166,11 @@ export function chatState(sessId: string, sentAtMs = 0, freshMs = 3000): ChatSta
   const rec = lastMain(records(s.file));
   if (!rec) return Date.now() - s.mtimeMs < freshMs ? { state: 'running' } : { state: 'none' };
   if (!rec.completedAt) return { state: 'running' };
-  if (rec.error) return { state: 'error', error: String(rec.error.message ?? rec.error) };
+  if (rec.error) {
+    const error = String(rec.error.message ?? rec.error);
+    // What ZCode records when a chat is stopped (zbridge stop, or the app's stop button).
+    return error === 'v4 session stopped' ? { state: 'stopped' } : { state: 'error', error };
+  }
   if (rec.response?.finishReason === 'tool-calls') return { state: 'running' };
   return { state: 'done', reply: rec.response?.text?.trim() ?? null };
 }
@@ -179,7 +184,7 @@ export async function waitForDone(sessId: string, timeoutMs: number, sentAtMs = 
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const st = chatState(sessId, sentAtMs);
-    if (st.state === 'done' || st.state === 'error' || Date.now() >= deadline) return st;
+    if (st.state === 'done' || st.state === 'error' || st.state === 'stopped' || Date.now() >= deadline) return st;
     await new Promise((r) => setTimeout(r, 1000));
   }
 }

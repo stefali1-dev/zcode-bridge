@@ -52,18 +52,20 @@ const errored = {
   error: { message: 'v4 session stopped' },
   completedAt: '2026-09-29T10:01:00Z',
 };
+const failed = { ...errored, error: { message: 'rate limited' } };
 const old = new Date(Date.now() - 120_000);
 const t2 = path.join(dir, 'model-io-sess_t2.jsonl');
 const t3 = path.join(dir, 'model-io-sess_t3.jsonl');
+const t4 = path.join(dir, 'model-io-sess_t4.jsonl');
 writeFileSync(t3, `${JSON.stringify(errored)}\n`);
-utimesSync(t2, old, old);
-utimesSync(t3, old, old);
+writeFileSync(t4, `${JSON.stringify(failed)}\n`);
+for (const f of [t2, t3, t4]) utimesSync(f, old, old);
 
 const t = await import('../domain/transcripts.js');
 
 test('listSessions finds session files', () => {
   const ids = t.listSessions().map((s) => s.sessId).sort();
-  assert.deepEqual(ids, ['no-session', 'sess_t1', 'sess_t2', 'sess_t3']);
+  assert.deepEqual(ids, ['no-session', 'sess_t1', 'sess_t2', 'sess_t3', 'sess_t4']);
 });
 
 test('readChat merges history with the last reply and drops system-reminder noise', () => {
@@ -82,13 +84,14 @@ test('readChat merges history with the last reply and drops system-reminder nois
   );
 });
 
-test('chatState: in-flight record is running, completed is done, failed is error', () => {
+test('chatState: in-flight record is running, completed is done, stopped is stopped, failed is error', () => {
   assert.equal(t.chatState('sess_t2').state, 'running');
   const done = t.chatState('sess_t1');
   assert.equal(done.state, 'done');
   assert.ok(done.state === 'done' && done.reply === 'second answer');
-  const err = t.chatState('sess_t3');
-  assert.ok(err.state === 'error' && /stopped/.test(err.error));
+  assert.equal(t.chatState('sess_t3').state, 'stopped');
+  const err = t.chatState('sess_t4');
+  assert.ok(err.state === 'error' && err.error === 'rate limited');
   assert.equal(t.chatState('nope').state, 'none');
 });
 

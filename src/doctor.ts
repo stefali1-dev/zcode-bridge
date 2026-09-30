@@ -47,7 +47,9 @@ export async function doctor(opts: Opts): Promise<void> {
     : warn('no transcript files found — is ~/.zcode/cli/rollout the right dir?');
 
   const appRunning = await launch.isAppRunning();
-  appRunning ? ok('ZCode app is running') : fail('ZCode app is not running');
+  if (appRunning) ok('ZCode app is running');
+  else if (opts.restart) warn('ZCode app is not running — starting it');
+  else fail('ZCode app is not running');
 
   if (!(await launch.isSocketOn())) {
     if (opts.restart) {

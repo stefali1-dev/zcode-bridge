@@ -19,7 +19,7 @@ agent ──CLI──▶ zbridge <command> ─────────┤
 
 ## Requirements
 
-- The ZCode desktop app: `/Applications/ZCode.app` on macOS; on Linux the extracted AppImage in `~/Applications/zcode` (`AppRun`)
+- The ZCode desktop app: `/Applications/ZCode.app` on macOS; on Linux the extracted AppImage in `~/Applications/zcode` (started as `~/Applications/zcode/zcode`)
 - Node ≥ 20.11
 
 ## Setup
@@ -56,7 +56,7 @@ zbridge status                                  # app / socket / queue state
 zbridge snapshot | click <ref> | type <ref> <text> | screenshot   # raw UI escape hatch
 ```
 
-- Waits default to 30 minutes. A wait that runs out returns `"status": "running"` (not an error): wait again.
+- Waits default to 30 minutes. A wait that runs out returns `"status": "running"` (not an error): wait again. A stopped chat returns `"status": "stopped"`.
 - `--chat` takes the id `send` returned; there is no "latest", so parallel agents never read each other's chats.
 - Chats run in ZCode's Tasks area, outside any repo: give absolute paths (`git -C <repo> …`).
 
