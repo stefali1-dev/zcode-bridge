@@ -42,14 +42,21 @@ zbridge doctor --restart
 ## CLI
 
 ```bash
-zbridge send "review this diff"               # new chat; waits for the reply
-zbridge send "hard problem" --model glm-5.3    # paid tier instead of the default
-zbridge read --chat latest --tail 5            # conversation so far
-zbridge wait --chat c1                         # block until a chat finishes
-zbridge list                                   # chats known to the bridge
-zbridge status                                 # app / socket / queue state
+zbridge send "review ~/git/foo: git -C ~/git/foo diff main"   # new chat; returns at once → {"chat": "c4", "status": "running"}
+zbridge wait --chat c4                          # block until it's done, print the reply
+zbridge send --chat c4 "now check the tests"    # follow-up in the same chat
+zbridge send --wait "quick question"            # send and wait in one call
+zbridge send "hard problem" --model glm-5.3     # paid tier instead of the default
+zbridge stop --chat c4                          # stop a working chat
+zbridge read --chat c4 --tail 5                 # conversation so far
+zbridge list                                    # chats known to the bridge
+zbridge status                                  # app / socket / queue state
 zbridge snapshot | click <ref> | type <ref> <text> | screenshot   # raw UI escape hatch
 ```
+
+- Waits default to 30 minutes. A wait that runs out returns `"status": "running"` (not an error): wait again.
+- `--chat` takes the id `send` returned; there is no "latest", so parallel agents never read each other's chats.
+- Chats run in ZCode's Tasks area, outside any repo: give absolute paths (`git -C <repo> …`).
 
 ## MCP
 
@@ -70,9 +77,10 @@ Endpoint: `http://127.0.0.1:7433/mcp` (stateless streamable HTTP, POST-only).
 | Tool | What it does |
 |---|---|
 | `app_status` | app running, socket on, connection, queue depth, known models |
-| `chat_send` | send a message (creates a Tasks chat if `chat` omitted), optionally set `model` / `plan` / `mode` first; waits for the reply by default |
+| `chat_send` | send a message (creates a Tasks chat if `chat` omitted), optionally set `model` / `plan` / `mode` first; returns at once unless `wait_for_reply` |
 | `chat_read` | conversation so far (newest last, truncated) |
 | `chat_wait` | block until the chat stops working, return its reply |
+| `chat_stop` | stop a working chat |
 | `chats_list` | known chats with running state, model, owner |
 | `ui_snapshot` / `ui_click` / `ui_type` / `ui_screenshot` | escape hatch for anything not covered |
 
@@ -86,6 +94,9 @@ Endpoint: `http://127.0.0.1:7433/mcp` (stateless streamable HTTP, POST-only).
 - The server binds to 127.0.0.1 only, has no password, and **refuses browser-originated requests** (cross-origin POSTs and DNS rebinding) — only local processes can use it.
 
 ## Limitations
+
+- ZCode keeps only the 3 newest transcript files (`~/.zcode/cli/rollout`) and deletes older ones, so `read` / `wait` on an older chat can come back empty.
+- A transcript line is written only when a model step finishes, so a chat in its first step has no transcript yet (`status` still says running).
 
 - `effort` is accepted but rejected with a clear error until its control is located in the app's UI.
 - The `ui_*` tools are atomic per call; there is no exclusive lease for multi-step click-throughs yet.

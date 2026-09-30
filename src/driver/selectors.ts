@@ -28,6 +28,8 @@ export const S = {
   newTask: ['[data-testid="conversation-new-task"]', '[data-testid="task-new-button"]'],
   modelPicker: ['[data-testid="chat-model-select-trigger"]'],
   modePicker: ['[data-testid="chat-mode-select-trigger"]'],
+  stop: ['[data-testid="v4-stop"]'],
+  taskItems: '[data-testid^="task-item-sess_"]',
 };
 
 const PLAN_ACCOUNT: Record<string, string> = {

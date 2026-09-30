@@ -196,3 +196,26 @@ export async function typeRef(page: Page, ref: string, text: string): Promise<vo
 export async function screenshot(page: Page): Promise<Buffer> {
   return page.screenshot({ type: 'png' });
 }
+
+export async function taskSessionIds(page: Page): Promise<Set<string>> {
+  const testids = await page.locator(S.taskItems).evaluateAll((els) => els.map((el) => el.getAttribute('data-testid') ?? ''));
+  return new Set(testids.map((t) => t.replace('task-item-', '')));
+}
+
+/** The app adds the sidebar item when the first message is sent; the transcript only appears after the model's first step, which can take minutes. */
+export async function waitNewSessionId(page: Page, before: Set<string>): Promise<string> {
+  for (let i = 0; i < 50; i++) {
+    const fresh = [...(await taskSessionIds(page))].filter((id) => !before.has(id));
+    if (fresh.length === 1) return fresh[0];
+    await page.waitForTimeout(200);
+  }
+  throw new Error('message sent, but the new chat did not show up in the sidebar — check the app');
+}
+
+/** No Stop button means the chat already finished. */
+export async function pressStop(page: Page): Promise<boolean> {
+  const stop = await find(page, S.stop, 1500);
+  if (!stop) return false;
+  await stop.click();
+  return true;
+}

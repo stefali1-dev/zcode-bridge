@@ -12,6 +12,8 @@ export interface RegistryChat {
   title: string;
   owner: string;
   createdAt: string;
+  /** Last send, epoch ms: transcript records older than this belong to the previous turn. */
+  sentAt?: number;
 }
 
 interface RegistryData {
@@ -48,19 +50,19 @@ export function add(chat: Omit<RegistryChat, 'id' | 'createdAt'>): RegistryChat 
   return entry;
 }
 
-export function resolve(ref?: string): RegistryChat {
+export function markSent(id: string, sentAt: number): void {
   const data = load();
-  if (data.chats.length === 0) throw new Error('no chats known yet — send one with chat_send first');
-  if (!ref || ref === 'latest') return data.chats[data.chats.length - 1];
-  const found = data.chats.find((c) => c.id === ref || c.sessId === ref);
+  const chat = data.chats.find((c) => c.id === id);
+  if (chat) chat.sentAt = sentAt;
+  save(data);
+}
+
+export function resolve(ref: string): RegistryChat {
+  const found = load().chats.find((c) => c.id === ref || c.sessId === ref);
   if (!found) throw new Error(`chat "${ref}" unknown — chats_list shows known chats`);
   return found;
 }
 
 export function list(): RegistryChat[] {
   return load().chats;
-}
-
-export function knownSessionIds(): Set<string> {
-  return new Set(load().chats.map((c) => c.sessId));
 }

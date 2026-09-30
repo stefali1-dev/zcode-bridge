@@ -156,9 +156,12 @@ export type ChatState =
 // Only main_turn records count. A completed record ending in tool-calls means the
 // agent is mid-loop (more records coming); only 'stop' (or an error / token limit)
 // ends a turn. A hung session leaves completedAt unset forever.
-export function chatState(sessId: string, freshMs = 3000): ChatState {
+// A record is written only when a model step finishes, so after a send (sentAtMs)
+// an older or missing file means the new turn is still in its first step.
+export function chatState(sessId: string, sentAtMs = 0, freshMs = 3000): ChatState {
   const s = session(sessId);
-  if (!s) return { state: 'none' };
+  if (!s) return sentAtMs ? { state: 'running' } : { state: 'none' };
+  if (s.mtimeMs < sentAtMs) return { state: 'running' };
   const rec = lastMain(records(s.file));
   if (!rec) return Date.now() - s.mtimeMs < freshMs ? { state: 'running' } : { state: 'none' };
   if (!rec.completedAt) return { state: 'running' };
@@ -167,31 +170,16 @@ export function chatState(sessId: string, freshMs = 3000): ChatState {
   return { state: 'done', reply: rec.response?.text?.trim() ?? null };
 }
 
-export function isIdle(sessId: string): boolean {
-  return chatState(sessId).state !== 'running';
+export function isIdle(sessId: string, sentAtMs = 0): boolean {
+  return chatState(sessId, sentAtMs).state !== 'running';
 }
 
-export async function waitForDone(sessId: string, timeoutMs = 300_000): Promise<ChatState> {
+/** At the deadline returns the current state (usually "running"), not an error: the caller waits again. */
+export async function waitForDone(sessId: string, timeoutMs: number, sentAtMs = 0): Promise<ChatState> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const st = chatState(sessId);
-    if (st.state === 'done' || st.state === 'error') return st;
+  for (;;) {
+    const st = chatState(sessId, sentAtMs);
+    if (st.state === 'done' || st.state === 'error' || Date.now() >= deadline) return st;
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error(
-    `chat ${sessId} still working after ${timeoutMs}ms — call chat_read to see progress, or chat_wait again; ` +
-      `if it never finishes, the chat may be waiting on a permission prompt in the app`,
-  );
-}
-
-export function matchSession(text: string, exclude: Set<string>): string | null {
-  const needle = text.trim();
-  for (const s of [...listSessions()].reverse()) {
-    if (exclude.has(s.sessId) || s.sessId === 'no-session') continue;
-    const rec = lastMain(records(s.file));
-    const users = (rec?.request?.messages ?? []).filter((m) => m.role === 'user');
-    const last = users[users.length - 1];
-    if (last && contentToString(last.content).trim() === needle) return s.sessId;
-  }
-  return null;
 }

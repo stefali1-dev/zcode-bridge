@@ -21,9 +21,11 @@ export const tools: Tool[] = [
     name: 'chat_send',
     description:
       'Send a message to a task chat in the ZCode app; creates a new chat when `chat` is omitted. ' +
+      'Chats run outside your repo: give absolute paths (e.g. `git -C /abs/repo diff`). ' +
       'New chats default to glm-5.3-flash on the start-plan bundle (free tokens; falls back to the individual plan ' +
       'if unavailable) and full-access permission mode. Omitted settings stay as the chat already uses. ' +
-      'The result reports which model/plan actually paid. Waits for the reply by default (timeout 120s).',
+      'The result reports which model/plan actually paid. Returns at once with the chat id; ' +
+      'pass wait_for_reply or call chat_wait for the reply.',
     shape: {
       text: z.string().min(1).describe('message to send'),
       model: z.enum(MODEL_IDS).optional().describe('e.g. glm-5.3 or glm-5.3-flash'),
@@ -31,8 +33,8 @@ export const tools: Tool[] = [
       effort: z.enum(['low', 'medium', 'high', 'max']).optional().describe('reasoning effort'),
       mode: z.enum(['full-access', 'ask', 'accept-edits', 'plan']).optional().describe('permission mode'),
       chat: z.string().optional().describe('chat id or "latest"; omit to start a new chat'),
-      wait_for_reply: z.boolean().optional().describe('default true'),
-      timeout_ms: z.number().int().positive().optional().describe('reply wait timeout, default 120000'),
+      wait_for_reply: z.boolean().optional().describe('default false'),
+      timeout_ms: z.number().int().positive().optional().describe('reply wait timeout, default 30 min'),
     },
     run: (a) => chats.send(a as never),
   },
@@ -40,19 +42,27 @@ export const tools: Tool[] = [
     name: 'chat_read',
     description: 'Read the conversation of a chat so far (messages newest last, each truncated to 800 chars).',
     shape: {
-      chat: z.string().optional().describe('chat id or "latest"'),
+      chat: z.string().describe('chat id from chat_send, e.g. c4'),
       tail: z.number().int().positive().optional().describe('how many messages, default 10'),
     },
     run: (a) => chats.read(a as never),
   },
   {
     name: 'chat_wait',
-    description: 'Wait until the chat is no longer working, then return its latest reply.',
+    description:
+      'Wait until the chat is no longer working, then return its latest reply. ' +
+      'Status "running" means the timeout passed first: call it again.',
     shape: {
-      chat: z.string().optional(),
-      timeout_ms: z.number().int().positive().optional().describe('default 300000'),
+      chat: z.string().describe('chat id from chat_send, e.g. c4'),
+      timeout_ms: z.number().int().positive().optional().describe('default 30 min'),
     },
     run: (a) => chats.wait(a as never),
+  },
+  {
+    name: 'chat_stop',
+    description: 'Stop a working chat (presses its Stop button). Send to it again to continue.',
+    shape: { chat: z.string().describe('chat id from chat_send, e.g. c4') },
+    run: (a) => chats.stop(a as never),
   },
   {
     name: 'chats_list',

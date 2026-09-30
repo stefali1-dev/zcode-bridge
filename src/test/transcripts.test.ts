@@ -133,17 +133,17 @@ test('readChat folds delta records after the last full one', () => {
   );
 });
 
-test('isIdle follows chatState; waitForDone resolves on done', async () => {
+test('isIdle follows chatState; waitForDone resolves on done, returns running at the deadline', async () => {
   assert.equal(t.isIdle('sess_t1'), true);
   assert.equal(t.isIdle('sess_t2'), false);
   const st = await t.waitForDone('sess_t1', 1000);
   assert.equal(st.state, 'done');
-  await assert.rejects(() => t.waitForDone('sess_t2', 100), /still working/);
+  assert.equal((await t.waitForDone('sess_t2', 100)).state, 'running');
 });
 
-test('matchSession finds the chat whose last user message is the text', () => {
-  writeFileSync(path.join(dir, 'model-io-sess_t4.jsonl'), `${JSON.stringify(line1)}\n`);
-  assert.equal(t.matchSession('again', new Set()), 'sess_t1');
-  assert.equal(t.matchSession('hi', new Set(['sess_t1'])), 'sess_t4');
-  assert.equal(t.matchSession('nonexistent', new Set()), null);
+test('chatState after a send: an older or missing transcript is still running', () => {
+  assert.equal(t.chatState('sess_t1').state, 'done');
+  assert.equal(t.chatState('sess_t1', Date.now() + 60_000).state, 'running');
+  assert.equal(t.chatState('sess_missing', Date.now()).state, 'running');
+  assert.equal(t.chatState('sess_missing').state, 'none');
 });

@@ -10,14 +10,17 @@ import {
   snapshot,
   typeAndSend,
   clickRef,
+  pressStop,
+  taskSessionIds,
+  waitNewSessionId,
   typeRef,
 } from '../driver/window.js';
+import { DEFAULT_WAIT_MS } from '../version.js';
 import * as launch from './launch.js';
 import * as registry from './registry.js';
 import {
   chatState,
   isIdle,
-  matchSession,
   readChat,
   waitForDone,
 } from './transcripts.js';
@@ -46,10 +49,11 @@ export async function send(args: SendArgs) {
   const model = args.model ?? (existing ? null : 'glm-5.3-flash');
   const plan = args.plan ?? (model === 'glm-5.3-flash' ? 'start-plan' : null);
   let applied = { model: null as string | null, plan: null as string | null };
-  await queue.run(
+  let sentAt = 0;
+  const sessId = await queue.run(
     async () => {
       // Inside the queue: a second send must not pass an idle check taken before the first ran.
-      if (existing && !isIdle(existing.sessId)) {
+      if (existing && !isIdle(existing.sessId, existing.sentAt)) {
         throw new Error(`chat ${existing.id} is still working — chat_wait for it to finish first`);
       }
       await launch.ensureSocket();
@@ -65,24 +69,19 @@ export async function send(args: SendArgs) {
         applied = await applySettings(page, settings);
       }
       await guard(page, S.chatInput, existing ? 'opening chat' : 'creating chat');
+      const before = existing ? null : await taskSessionIds(page);
+      sentAt = Date.now();
       await typeAndSend(page, args.text);
+      return before ? waitNewSessionId(page, before) : existing!.sessId;
     },
     60_000,
   );
 
-  let entry = existing;
-  if (!entry) {
-    let sessId: string | null = null;
-    for (let i = 0; i < 20 && !sessId; i++) {
-      sessId = matchSession(args.text, registry.knownSessionIds());
-      if (!sessId) await new Promise((r) => setTimeout(r, 1000));
-    }
-    if (!sessId) throw new Error('message sent, but could not match it to a transcript file — check chats_list and the app');
-    entry = registry.add({ sessId, title: args.text.slice(0, 48), owner: args.owner ?? 'cli' });
-  }
+  const entry = existing ?? registry.add({ sessId, title: args.text.slice(0, 48), owner: args.owner ?? 'cli', sentAt });
+  if (existing) registry.markSent(existing.id, sentAt);
 
-  const waited = args.wait_for_reply !== false;
-  const st = waited ? await waitForDone(entry.sessId, args.timeout_ms ?? 120_000) : chatState(entry.sessId);
+  const waited = args.wait_for_reply === true;
+  const st = waited ? await waitForDone(entry.sessId, args.timeout_ms ?? DEFAULT_WAIT_MS, sentAt) : chatState(entry.sessId, sentAt);
   return {
     chat: entry.id,
     sessId: entry.sessId,
@@ -96,19 +95,30 @@ export async function send(args: SendArgs) {
   };
 }
 
-export async function read(args: { chat?: string; tail?: number }) {
+export async function read(args: { chat: string; tail?: number }) {
   const entry = registry.resolve(args.chat);
   const data = readChat(entry.sessId);
   if (!data) throw new Error(`no transcript found for chat ${entry.id} — it may not have started`);
   const tail = args.tail ?? 10;
   const messages = data.messages.slice(-tail).map((m) => ({ role: m.role, content: m.content.slice(0, 800) }));
-  return { chat: entry.id, title: data.title ?? entry.title, model: data.model, idle: isIdle(entry.sessId), messages };
+  return { chat: entry.id, title: data.title ?? entry.title, model: data.model, idle: isIdle(entry.sessId, entry.sentAt), messages };
 }
 
-export async function wait(args: { chat?: string; timeout_ms?: number }) {
+export async function wait(args: { chat: string; timeout_ms?: number }) {
   const entry = registry.resolve(args.chat);
-  const st = await waitForDone(entry.sessId, args.timeout_ms ?? 300_000);
+  const st = await waitForDone(entry.sessId, args.timeout_ms ?? DEFAULT_WAIT_MS, entry.sentAt);
   return { chat: entry.id, status: st.state, reply: st.state === 'done' ? st.reply : null, error: st.state === 'error' ? st.error : null };
+}
+
+export async function stop(args: { chat: string }) {
+  const entry = registry.resolve(args.chat);
+  const stopped = await queue.run(async () => {
+    await launch.ensureSocket();
+    const page = await getPage();
+    await openChatBySession(page, entry.sessId);
+    return pressStop(page);
+  });
+  return { chat: entry.id, status: stopped ? 'stopped' : 'not running' };
 }
 
 export async function list() {
@@ -121,7 +131,7 @@ export async function list() {
       owner: c.owner,
       createdAt: c.createdAt,
       model: data?.model ?? null,
-      running: !isIdle(c.sessId),
+      running: !isIdle(c.sessId, c.sentAt),
     };
   });
 }

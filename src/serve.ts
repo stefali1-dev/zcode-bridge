@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { createMcpServer } from './mcp.js';
 import { STATE_DIR } from './domain/registry.js';
 import { findTool } from './tools.js';
-import { DEFAULT_PORT, VERSION } from './version.js';
+import { DEFAULT_PORT, DEFAULT_WAIT_MS, VERSION } from './version.js';
 
 const PORT = Number(process.env.ZBRIDGE_PORT ?? DEFAULT_PORT);
 const MAX_BODY = 1_000_000;
@@ -145,7 +145,9 @@ export async function runTool(tool: string, args: Record<string, unknown> = {}, 
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ tool, args, owner }),
-      signal: AbortSignal.timeout(600_000),
+      // The server bounds every wait itself; this only catches a hung server. The margin covers
+      // queueing behind other agents' window actions before the wait starts.
+      signal: AbortSignal.timeout(Number(args.timeout_ms ?? DEFAULT_WAIT_MS) + 5 * 60_000),
     });
   } catch {
     throw new Error(`cannot reach zbridge serve on 127.0.0.1:${PORT} — start it with \`zbridge serve\``);

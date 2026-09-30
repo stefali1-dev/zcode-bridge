@@ -20,7 +20,22 @@ async function call(tool: string, args: Record<string, unknown> = {}): Promise<v
 export async function runCli(argv: string[]): Promise<void> {
   const program = new Command();
 
-  program.name('zbridge').description('Drive the ZCode desktop app from scripts and agents').version(VERSION);
+  program
+    .name('zbridge')
+    .description('Drive the ZCode desktop app from scripts and agents. Output is JSON.')
+    .version(VERSION)
+    .addHelpText(
+      'after',
+      `
+Typical use:
+  zbridge send "Review ~/git/foo: run \`git -C ~/git/foo diff main\`. Only read."
+      → {"chat": "c4", "status": "running", ...}
+  zbridge wait --chat c4
+      → {"status": "done", "reply": "..."}; "running" means the timeout passed first: wait again
+
+Chats run outside your repo (ZCode's Tasks area): give absolute paths.
+New chats use glm-5.3-flash on the free start-plan bundle, in full-access mode.`,
+    );
 
   program
     .command('serve')
@@ -31,14 +46,14 @@ export async function runCli(argv: string[]): Promise<void> {
 
   program
     .command('send <text...>')
-    .description('send a message; creates a new task chat unless --chat is given')
-    .option('--model <model>')
+    .description('send a message; starts a new chat unless --chat is given, returns at once with the chat id')
+    .option('--model <model>', 'glm-5.3-flash (new-chat default) | glm-5.3 | ... (all: `zbridge status`)')
     .option('--plan <plan>', 'individual | start-plan')
-    .option('--effort <effort>', 'low | medium | high | max')
+    .option('--effort <effort>', 'not wired yet: rejected')
     .option('--mode <mode>', 'full-access | ask | accept-edits | plan')
-    .option('--chat <chat>', 'chat id or "latest"')
-    .option('--no-wait', "don't wait for the reply")
-    .option('--timeout-ms <ms>', 'reply wait timeout', intArg)
+    .option('--chat <id>', 'existing chat to continue, e.g. c4')
+    .option('--wait', 'wait for the reply (same as a following `wait`)')
+    .option('--timeout-ms <ms>', 'with --wait: timeout, default 30 min', intArg)
     .action((words: string[], opts: Record<string, unknown>) => {
       const o = opts as { model?: string; plan?: string; effort?: string; mode?: string; chat?: string; wait?: boolean; timeoutMs?: number };
       return call('chat_send', {
@@ -48,24 +63,30 @@ export async function runCli(argv: string[]): Promise<void> {
         effort: o.effort,
         mode: o.mode,
         chat: o.chat,
-        wait_for_reply: o.wait !== false,
+        wait_for_reply: o.wait === true,
         timeout_ms: o.timeoutMs,
       });
     });
 
   program
     .command('read')
-    .description('read a conversation so far')
-    .option('--chat <chat>', 'chat id or "latest"')
+    .description('read a conversation so far (each message cut to 800 chars)')
+    .requiredOption('--chat <id>', 'e.g. c4')
     .option('--tail <n>', 'number of messages', intArg)
     .action((opts) => call('chat_read', opts));
 
   program
     .command('wait')
-    .description('wait until a chat is done working')
-    .option('--chat <chat>')
-    .option('--timeout-ms <ms>', 'wait timeout', intArg)
+    .description('wait until a chat is done working, then print its reply')
+    .requiredOption('--chat <id>', 'e.g. c4')
+    .option('--timeout-ms <ms>', 'default 30 min; after it, status is "running"', intArg)
     .action((opts) => call('chat_wait', { chat: opts.chat, timeout_ms: opts.timeoutMs }));
+
+  program
+    .command('stop')
+    .description('stop a working chat; send to it again to continue')
+    .requiredOption('--chat <id>', 'e.g. c4')
+    .action((opts) => call('chat_stop', { chat: opts.chat }));
 
   program.command('list').description('list chats known to the bridge').action(() => call('chats_list'));
 
