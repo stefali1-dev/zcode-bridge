@@ -19,7 +19,7 @@ agent ──CLI──▶ zbridge <command> ─────────┤
 
 ## Requirements
 
-- macOS with the ZCode desktop app installed
+- The ZCode desktop app: `/Applications/ZCode.app` on macOS; on Linux the extracted AppImage in `~/Applications/zcode` (`AppRun`)
 - Node ≥ 20.11
 
 ## Setup
@@ -30,6 +30,8 @@ cd zcode-bridge
 npm install && npm run build
 npm link          # optional: puts `zbridge` on PATH
 ```
+
+Update: `git pull && npm run build`. The next `zbridge` command replaces a server still running the old build.
 
 The app must run with its remote-control socket on (one relaunch, no data lost):
 

@@ -6,7 +6,7 @@
   "type": "module",
   "bin": { "zbridge": "dist/index.js" },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/index.js",
     "test": "tsc && node --test dist/test/",
     "typecheck": "tsc --noEmit"
   },

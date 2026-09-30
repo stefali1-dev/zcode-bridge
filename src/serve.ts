@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -11,6 +11,8 @@ import { DEFAULT_PORT, DEFAULT_WAIT_MS, VERSION } from './version.js';
 
 const PORT = Number(process.env.ZBRIDGE_PORT ?? DEFAULT_PORT);
 const MAX_BODY = 1_000_000;
+/** Changes on every build, so a CLI can tell that the running server is older than its own code. */
+const BUILD = String(statSync(import.meta.filename).mtimeMs);
 
 function json(res: http.ServerResponse, code: number, body: unknown): void {
   if (res.headersSent) {
@@ -74,7 +76,7 @@ export function startServe(): void {
       }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (url.pathname === '/ping') {
-        json(res, 200, { ok: true, version: VERSION });
+        json(res, 200, { ok: true, version: VERSION, build: BUILD });
       } else if (url.pathname === '/run' && req.method === 'POST') {
         if ((req.headers['content-type'] ?? '').split(';')[0] !== 'application/json') {
           json(res, 415, { ok: false, error: 'content-type must be application/json' });
@@ -118,17 +120,29 @@ export function startServe(): void {
   });
 }
 
-export async function pingServer(): Promise<boolean> {
+/** The running server's build, '' for a server too old to report one, null when none answers. */
+async function serverBuild(): Promise<string | null> {
   try {
     const res = await fetch(`http://127.0.0.1:${PORT}/ping`, { signal: AbortSignal.timeout(1000) });
-    return res.ok;
+    const body = (await res.json()) as { build?: string };
+    return body.build ?? '';
   } catch {
-    return false;
+    return null;
   }
 }
 
+export async function pingServer(): Promise<boolean> {
+  return (await serverBuild()) !== null;
+}
+
 export async function ensureServer(): Promise<void> {
-  if (await pingServer()) return;
+  const running = await serverBuild();
+  if (running === BUILD) return;
+  if (running !== null) {
+    // Built again since it started: replace it, or it keeps serving the old code.
+    process.kill(Number(readFileSync(path.join(STATE_DIR, 'pid'), 'utf8')));
+    for (let i = 0; i < 10 && (await pingServer()); i++) await new Promise((r) => setTimeout(r, 300));
+  }
   const entry = path.resolve(import.meta.dirname, 'index.js');
   spawn(process.execPath, [entry, 'serve'], { detached: true, stdio: 'ignore' }).unref();
   for (let i = 0; i < 15 && !(await pingServer()); i++) {
